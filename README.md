@@ -54,7 +54,7 @@ pkg install susdu
 
 ```bash
 # Download the script
-curl -LO https://raw.githubusercontent.com/yourusername/susdu/main/susdu
+curl -LO https://raw.githubusercontent.com/inrryoff/susdu/main/susdu
 
 # Make it executable
 chmod +x susdu
@@ -68,7 +68,7 @@ susdu --version
 
 ### From Source
 ```bash
-git clone https://github.com/yourusername/susdu
+git clone https://github.com/inrryoff/susdu
 cd susdu
 chmod +x susdu
 cp susdu $PREFIX/bin/
