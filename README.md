@@ -247,9 +247,6 @@ src             # Reloads the configuration
 
 ### Daily Usage
 ```bash
-# Update packages as root
-susdu apt update && susdu apt upgrade
-
 # Navigate to protected directories
 susdu
 cd /data/data
