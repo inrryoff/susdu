@@ -1,0 +1,388 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+# =============================================================================
+# SUSDU - SuperUser SUDO for Termux
+# Versão: 1.0.0
+# Suporte: KernelSU | MagiskSU | SuperSU | Generic su
+# Licença: MIT
+# =============================================================================
+
+_NAME="susdu"
+_VERSION="1.0.0"
+
+# Cores
+if [[ -t 1 ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    MAGENTA='\033[0;35m'
+    RESET='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; CYAN=''; MAGENTA=''; RESET=''
+fi
+
+# Configurações
+TERMUX_PREFIX="/data/data/com.termux/files/usr"
+TERMUX_HOME="/data/data/com.termux/files/home"
+ROOT_HOME="$TERMUX_HOME/.$_NAME"
+
+# Flags
+_DEBUG=false
+_PRESERVE_ENV=false
+_LOAD_BASHRC=true
+_COMMAND=""
+_ALT_SHELL=""
+_SWITCH_USER=""
+_SU_BINARY=""
+_SU_TYPE="unknown"
+
+# =============================================================================
+# Funções de output
+# =============================================================================
+
+log_debug() { $_DEBUG && echo -e "${CYAN}[DEBUG]${RESET} $*" >&2; }
+log_info() { echo -e "${BLUE}ℹ${RESET} $*"; }
+log_success() { echo -e "${GREEN}✓${RESET} $*"; }
+log_warn() { echo -e "${YELLOW}!${RESET} $*" >&2; }
+log_error() { echo -e "${RED}✗${RESET} $*" >&2; }
+
+# =============================================================================
+# Banner
+# =============================================================================
+
+show_banner() {
+    # Supondo que a versão tenha 5 caracteres (ex: 1.0.0)
+    # Se mudar o tamanho da versão, ajuste os espaços abaixo
+    echo -e "${RED}"
+    echo "  ╔════════════════════════════════════════════════════════╗"
+    echo "  ║                                                        ║"
+    echo "  ║      ███████╗██╗   ██╗███████╗██████╗ ██╗   ██╗        ║"
+    echo "  ║      ██╔════╝██║   ██║██╔════╝██╔══██╗██║   ██║        ║"
+    echo "  ║      ███████╗██║   ██║███████╗██║  ██║██║   ██║        ║"
+    echo "  ║      ╚════██║██║   ██║╚════██║██║  ██║██║   ██║        ║"
+    echo "  ║      ███████║╚██████╔╝███████║██████╔╝╚██████╔╝        ║"
+    echo "  ║      ╚══════╝ ╚═════╝ ╚══════╝╚═════╝  ╚═════╝         ║"
+    echo "  ║                                                        ║"
+    echo "  ║              SUSDU - SuperUser SUDO                    ║"
+    echo "  ║                   Version 1.0.0                        ║"
+    echo "  ║                                                        ║"
+    echo "  ║         KernelSU | MagiskSU | SuperSU | Generic        ║"
+    echo "  ╚════════════════════════════════════════════════════════╝"
+    echo -e "${RESET}"
+}
+
+show_help() {
+    show_banner
+    echo -e "${GREEN}USAGE:${RESET}"
+    echo "    $_NAME [OPTIONS] [COMMAND...]"
+    echo ""
+    echo -e "${YELLOW}OPTIONS:${RESET}"
+    echo "    -c, --command CMD     Execute command as root"
+    echo "    -s, --shell SHELL     Use specific shell (bash, sh, system)"
+    echo "    -u, --user USER       Switch to USER instead of root"
+    echo "    -E, --preserve-env    Preserve environment variables"
+    echo "    -b, --bashrc          Load .bashrc (default for interactive)"
+    echo "    --no-bashrc           Skip loading .bashrc"
+    echo "    --dbg, --debug        Enable debug mode"
+    echo "    -h, --help            Show this help"
+    echo "    --version             Show version"
+    echo ""
+    echo -e "${YELLOW}EXAMPLES:${RESET}"
+    echo "    ${CYAN}$_NAME${RESET}                              # Interactive root shell"
+    echo "    ${CYAN}$_NAME apt update${RESET}                   # Run command as root"
+    echo "    ${CYAN}$_NAME -c \"ls -la /data\"${RESET}            # Run specific command"
+    echo "    ${CYAN}$_NAME -s system getprop ro.product.model${RESET}  # Use /system/bin/sh"
+    echo "    ${CYAN}$_NAME -u shell whoami${RESET}              # Switch user and run"
+    echo ""
+}
+
+show_version() {
+    echo "$_NAME version $_VERSION"
+    echo "SuperUser SUDO for Termux"
+}
+
+# =============================================================================
+# Prevenção de recursão (usando EUID que é mais rápido)
+# =============================================================================
+
+check_already_root() {
+    if (( EUID == 0 )); then
+        log_warn "Already running as root! Starting shell directly..."
+        exec "$TERMUX_PREFIX/bin/bash" -i
+    fi
+}
+
+# =============================================================================
+# Buscar su binary
+# =============================================================================
+
+find_su_binary() {
+    local paths=(
+        "/system/bin/su"
+        "/system/xbin/su"
+        "/system/product/bin/su"
+        "/sbin/su"
+        "/su/bin/su"
+        "/magisk/.core/bin/su"
+        "/data/adb/magisk/su"
+        "/data/adb/ksu/bin/su"
+        "/data/adb/ap/bin/su"
+    )
+    
+    for path in "${paths[@]}"; do
+        if [[ -x "$path" ]]; then
+            _SU_BINARY="$path"
+            log_debug "Found su: $path"
+            return 0
+        fi
+    done
+    return 1
+}
+
+detect_su_type() {
+    local version
+    version="$("$_SU_BINARY" -v 2>&1 | head -n1)"
+    log_debug "SU version: $version"
+    
+    if [[ "$version" == *"KernelSU"* ]]; then
+        echo "kernelsu"
+    elif [[ "$version" == *"MAGISK"* ]]; then
+        echo "magisk"
+    elif [[ "$version" == *"SuperSU"* ]]; then
+        echo "supersu"
+    else
+        echo "generic"
+    fi
+}
+
+# =============================================================================
+# Setup root .bashrc (agora chamado DEPOIS de encontrar o su)
+# =============================================================================
+
+setup_root_bashrc() {
+    mkdir -p "$ROOT_HOME" 2>/dev/null
+    
+    if [[ ! -f "$ROOT_HOME/.bashrc" ]]; then
+        cat << BASHRC_EOF > "$ROOT_HOME/.bashrc"
+# =============================================================================
+# Root .bashrc for $_NAME
+# Este arquivo foi criado automaticamente e NÃO será sobrescrito
+# =============================================================================
+
+# PATH com acesso aos comandos do Termux
+export PATH="$TERMUX_PREFIX/bin:$TERMUX_PREFIX/local/bin:/system/bin:/system/xbin:/vendor/bin:\$PATH"
+
+# Aliases
+shopt -s expand_aliases
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ll='ls -la'
+alias la='ls -a'
+alias l='ls -l'
+alias c='clear'
+alias x='exit'
+alias micro='micro -clipboard internal'
+alias conf='micro ~/.bashrc'
+alias src='source ~/.bashrc'
+
+# Navegação rápida
+alias croot='cd $ROOT_HOME'
+alias ctermux='cd $TERMUX_HOME'
+alias csystem='cd /system'
+alias cdata='cd /data'
+
+# PROMPT: root@localhost:~#
+PS1='\[\e[1;31m\]root@localhost\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]# '
+
+export EDITOR='micro'
+export HISTSIZE=5000
+export HISTFILESIZE=10000
+
+sysinfo() {
+    echo "Device: \$(getprop ro.product.manufacturer 2>/dev/null) \$(getprop ro.product.model 2>/dev/null)"
+    echo "Android: \$(getprop ro.build.version.release 2>/dev/null)"
+    echo "Kernel: \$(uname -r)"
+    echo "Root method: $("$_SU_BINARY" -v 2>&1 | head -n1)"
+}
+
+echo -e "\033[0;32m✓\033[0m $_NAME root shell ready"
+BASHRC_EOF
+        log_success "Created .bashrc for $_NAME"
+    fi
+}
+
+# =============================================================================
+# Obter shell
+# =============================================================================
+
+get_root_shell() {
+    if [[ -n "$_SWITCH_USER" ]]; then
+        echo "/system/bin/sh"
+        return
+    fi
+    
+    case "$_ALT_SHELL" in
+        system)
+            echo "/system/bin/sh"
+            ;;
+        bash|"")
+            if [[ -x "$TERMUX_PREFIX/bin/bash" ]]; then
+                echo "$TERMUX_PREFIX/bin/bash"
+            else
+                echo "/system/bin/sh"
+            fi
+            ;;
+        *)
+            echo "$_ALT_SHELL"
+            ;;
+    esac
+}
+
+# =============================================================================
+# Parse arguments (captura comando multi-palavra)
+# =============================================================================
+
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -c|--command)
+                shift
+                _COMMAND="$*"
+                break
+                ;;
+            -s|--shell)
+                _ALT_SHELL="$2"
+                shift 2
+                ;;
+            -u|--user)
+                _SWITCH_USER="$2"
+                shift 2
+                ;;
+            -E|--preserve-env)
+                _PRESERVE_ENV=true
+                shift
+                ;;
+            -b|--bashrc)
+                _LOAD_BASHRC=true
+                shift
+                ;;
+            --no-bashrc)
+                _LOAD_BASHRC=false
+                shift
+                ;;
+            --dbg|--debug)
+                _DEBUG=true
+                shift
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            --version)
+                show_version
+                exit 0
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+            *)
+                # Captura o comando inteiro
+                _COMMAND="$*"
+                break
+                ;;
+        esac
+    done
+}
+
+# =============================================================================
+# Build command (usa o shell escolhido pelo usuário)
+# =============================================================================
+
+build_command() {
+    local shell_cmd
+    shell_cmd=$(get_root_shell)
+    local final_cmd
+    
+    if [[ -n "$_COMMAND" ]]; then
+        # Usa o shell escolhido pelo usuário, não força bash
+        local escaped_cmd
+        printf -v escaped_cmd '%q' "$_COMMAND"
+        final_cmd="export HOME=\"$ROOT_HOME\"; export PATH=\"$TERMUX_PREFIX/bin:/system/bin:/system/xbin:\$PATH\"; cd \"$PWD\"; exec $shell_cmd -c $escaped_cmd"
+    else
+        # Interactive mode
+        if [[ "$_LOAD_BASHRC" == true ]] && [[ "$shell_cmd" == *"bash"* ]]; then
+            final_cmd="export HOME=\"$ROOT_HOME\"; export PATH=\"$TERMUX_PREFIX/bin:/system/bin:/system/xbin:\$PATH\"; cd \"$PWD\"; exec $shell_cmd --rcfile \"$ROOT_HOME/.bashrc\" -i"
+        else
+            final_cmd="export HOME=\"$ROOT_HOME\"; export PATH=\"$TERMUX_PREFIX/bin:/system/bin:/system/xbin:\$PATH\"; cd \"$PWD\"; exec $shell_cmd -i"
+        fi
+    fi
+    
+    echo "$final_cmd"
+}
+
+# =============================================================================
+# Main (ordem corrigida: parse → find su → setup)
+# =============================================================================
+
+main() {
+    # Prevenir recursão
+    check_already_root
+    
+    # Banner interativo
+    if [[ $# -eq 0 ]]; then
+        show_banner
+    fi
+    
+    # 1. Parse arguments primeiro
+    parse_arguments "$@"
+    
+    # 2. Encontrar su binary (precisa antes do setup_root_bashrc)
+    if ! find_su_binary; then
+        log_error "No su binary found! Are you rooted?"
+        exit 1
+    fi
+    
+    # 3. Detectar tipo
+    _SU_TYPE=$(detect_su_type)
+    log_debug "Detected: $_SU_TYPE"
+    
+    # 4. Setup .bashrc (agora _SU_BINARY já está definido)
+    setup_root_bashrc
+    
+    # 5. Build command
+    local final_cmd
+    final_cmd=$(build_command)
+    log_debug "Command: $final_cmd"
+    
+    # 6. Build su arguments
+    local su_args=("$_SU_BINARY")
+    
+    case $_SU_TYPE in
+        kernelsu)
+            [[ "$_PRESERVE_ENV" == true ]] && su_args+=("-p")
+            ;;
+        magisk)
+            [[ "$_PRESERVE_ENV" == true ]] && su_args+=("--preserve-environment")
+            ;;
+        supersu|generic)
+            [[ "$_PRESERVE_ENV" == true ]] && su_args+=("-p")
+            ;;
+    esac
+    
+    [[ -n "$_SWITCH_USER" ]] && su_args+=("$_SWITCH_USER")
+    su_args+=("-c")
+    
+    # 7. Execute SEM exec no primeiro comando (para fallback funcionar)
+    log_debug "Executing: ${su_args[*]} \"$final_cmd\""
+    "${su_args[@]}" "$final_cmd" || {
+        log_warn "Failed with default su, trying 'su 0' fallback..."
+        exec su 0 -c "$final_cmd"
+    }
+}
+
+# Run!
+main "$@"
