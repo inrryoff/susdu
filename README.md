@@ -335,8 +335,10 @@ If you find SUSDU useful, please:
 
 ---
 
-# 🖼️ Imagens
+# 📸 Screenshots
 
 ![Banner](assets/1.png)
+
 ---
+
 ![Banner](assets/2.png)
