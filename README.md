@@ -93,7 +93,6 @@ root@localhost:~#
 
 ### Run Commands as Root
 ```bash
-susdu apt update
 susdu ls -la /data
 susdu -c "cat /proc/version"
 ```
