@@ -1,6 +1,10 @@
-# ⚡ SUSDU
+<p align="center">
+  <img src="assets/banner.png" alt="SUSDU Banner" width="100%">
+</p>
 
-**SuperUser SUDO for Termux**  
+<h1 align="center">⚡ SUSDU</h1>
+<p align="center"><b>SuperUser SUDO for Termux</b></p>
+
 *Modern root shell wrapper for KernelSU, MagiskSU, SuperSU and generic su*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -334,4 +338,5 @@ If you find SUSDU useful, please:
 # 🖼️ Imagens
 
 ![Banner](assets/1.png)
+---
 ![Banner](assets/2.png)
