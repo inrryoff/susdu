@@ -49,7 +49,13 @@ su 0 -c
 
 - MIT licensed
 
+---
 
+## Requirements
+
+- Termux
+- Root access (KernelSU, Magisk, etc)
+- Bash
 
 ---
 
