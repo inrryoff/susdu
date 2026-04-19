@@ -328,3 +328,10 @@ If you find SUSDU useful, please:
 ---
 
 **Made with ❤️ for the Termux community**
+
+---
+
+# 🖼️ Imagens
+
+![Banner](assets/1.png)
+![Banner](assets/2.png)
